@@ -31,11 +31,12 @@ type MeasurementInput struct {
 }
 
 type MeasurementAnalysis struct {
-	Operation  model.Operation `json:"operation"`
-	Wave       probe.Analysis  `json:"wave"`
-	ForceCount int             `json:"force_count"`
-	ForceMean  float64         `json:"force_mean"`
-	Evaluated  time.Time       `json:"evaluated_at"`
+	Operation  model.Operation      `json:"operation"`
+	Wave       probe.Analysis       `json:"wave"`
+	Spectrum   probe.SpectralReport `json:"spectrum"`
+	ForceCount int                  `json:"force_count"`
+	ForceMean  float64              `json:"force_mean"`
+	Evaluated  time.Time            `json:"evaluated_at"`
 }
 
 type MeasurementArchive struct {
@@ -184,6 +185,7 @@ func (a *MeasurementArchive) Analyze(id model.RunID) (MeasurementAnalysis, error
 		}
 	}
 	result.Wave = probe.Analyze(waves)
+	result.Spectrum = probe.AnalyzeSpectrum(waves)
 	if result.ForceCount > 0 {
 		result.ForceMean /= float64(result.ForceCount)
 	}

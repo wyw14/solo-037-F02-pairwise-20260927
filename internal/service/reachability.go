@@ -2,6 +2,7 @@ package service
 
 import (
     "context"
+    "math"
     "time"
 
     "github.com/wyw14/solo-037/internal/absorber"
@@ -26,11 +27,20 @@ func ExerciseReachability(l *Laboratory, at time.Time) map[string]any {
     result["stage_valid"] = model.ValidateStage(model.StageConfigured) == nil
     result["stage_sequence"] = model.StageSequence()
     evidence := model.NewEvidence(identities.Run, identities.Revision, "probe-a", model.EvidenceWaveTime, 0.01, at).WithDurability(true)
-    derived := probe.DeriveSpectrum(evidence)
-    result["same_source"] = evidence.SamePhysicalSource(derived)
-    result["source_groups"] = probe.SameSourceGroups([]model.Evidence{evidence, derived})
-    result["normalized"] = probe.Normalize([]model.Evidence{evidence, derived})
-    result["revision_samples"] = probe.FilterRevision([]model.Evidence{evidence, derived}, identities.Revision)
+    series := make([]model.Evidence, 0, 32)
+    for index := 0; index < 32; index++ {
+        series = append(series, model.NewEvidence(identities.Run, identities.Revision, "probe-a", model.EvidenceWaveTime, 0.01*math.Sin(2*math.Pi*float64(index)/8), at.Add(time.Duration(index)*50*time.Millisecond)).WithDurability(true))
+    }
+    derived, derivedOK := probe.DeriveSpectrum(series)
+    result["derived_spectrum"] = derivedOK
+    result["same_source"] = derivedOK && evidence.SamePhysicalSource(derived)
+    withDerived := append([]model.Evidence{}, series...)
+    if derivedOK {
+        withDerived = append(withDerived, derived)
+    }
+    result["source_groups"] = probe.SameSourceGroups(withDerived)
+    result["normalized"] = probe.Normalize(withDerived)
+    result["revision_samples"] = probe.FilterRevision(withDerived, identities.Revision)
 
     auxiliaryTank := tank.NewRegistry(2.1)
     result["observed_free"] = auxiliaryTank.ObserveFree("audit")

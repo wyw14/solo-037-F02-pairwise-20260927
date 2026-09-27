@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wyw14/solo-037/internal/model"
+	"github.com/wyw14/solo-037/internal/probe"
 )
 
 func TestOperatorMeasurementsPersistAndAnalyzeSuppliedValues(t *testing.T) {
@@ -44,8 +45,82 @@ func TestOperatorMeasurementsPersistAndAnalyzeSuppliedValues(t *testing.T) {
 	}
 }
 
-func TestOperatorMeasurementRejectsInvalidAndUnknownRun(t *testing.T) {
+func TestOperatorMeasurementSpectrumFromContinuousFrames(t *testing.T) {
 	a, err := OpenMeasurementArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := a.Create("test C", "hull Y", "section-b", "carriage-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-time.Hour).UTC()
+	for index := 0; index < 32; index++ {
+		value := 0.1 * math.Sin(2*math.Pi*0.5*float64(index)*0.05)
+		input := MeasurementInput{Kind: model.EvidenceWaveTime, SourceID: "probe-a", Value: value, RecordedAt: start.Add(time.Duration(index) * 50 * time.Millisecond)}
+		if _, err := a.Record(run.Operation.ID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	analysis, err := a.Analyze(run.Operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.Wave.Count != 32 {
+		t.Fatalf("wave stats lost raw frames: %+v", analysis.Wave)
+	}
+	if len(analysis.Spectrum.Spectra) != 1 {
+		t.Fatalf("spectra %+v", analysis.Spectrum.Spectra)
+	}
+	spectrum := analysis.Spectrum.Spectra[0]
+	if spectrum.Status != probe.SpectrumOK {
+		t.Fatalf("spectrum %+v", spectrum)
+	}
+	if math.Abs(spectrum.PeakHz-0.5) > spectrum.ResolutionHz {
+		t.Fatalf("peak %v Hz not within resolution %v of 0.5 Hz", spectrum.PeakHz, spectrum.ResolutionHz)
+	}
+	if !spectrum.WindowFirst.Equal(start) || spectrum.Frames != 32 {
+		t.Fatalf("window %+v does not cover the recorded series", spectrum)
+	}
+	loaded, ok := a.Get(run.Operation.ID)
+	if !ok || len(loaded.Evidence) != 32 {
+		t.Fatalf("raw wave evidence not reviewable: %+v", loaded)
+	}
+}
+
+func TestOperatorMeasurementSpectrumInsufficientForSparseFrames(t *testing.T) {
+	a, err := OpenMeasurementArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := a.Create("test D", "hull Y", "section-b", "carriage-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-time.Hour).UTC()
+	for index := 0; index < 3; index++ {
+		input := MeasurementInput{Kind: model.EvidenceWaveTime, SourceID: "probe-a", Value: 0.1, RecordedAt: start.Add(time.Duration(index) * 50 * time.Millisecond)}
+		if _, err := a.Record(run.Operation.ID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	analysis, err := a.Analyze(run.Operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Spectrum.Spectra) != 1 {
+		t.Fatalf("spectra %+v", analysis.Spectrum.Spectra)
+	}
+	spectrum := analysis.Spectrum.Spectra[0]
+	if spectrum.Status != probe.SpectrumInsufficient || spectrum.Reason == "" {
+		t.Fatalf("sparse frames should not produce a spectrum: %+v", spectrum)
+	}
+	if len(spectrum.Bins) != 0 || spectrum.PeakHz != 0 {
+		t.Fatalf("insufficient spectrum carries bins/peak: %+v", spectrum)
+	}
+}
+
+func TestOperatorMeasurementRejectsInvalidAndUnknownRun(t *testing.T) {	a, err := OpenMeasurementArchive(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -83,14 +83,6 @@ func FilterRun(samples []model.Evidence, run model.RunID) []model.Evidence {
     return result
 }
 
-func DeriveSpectrum(sample model.Evidence) model.Evidence {
-    derived := sample
-    derived.ID = model.NewEventID()
-    derived.Kind = model.EvidenceWaveSpectrum
-    derived.Value = math.Abs(sample.Value)
-    return derived
-}
-
 func SameSourceGroups(samples []model.Evidence) map[string][]model.Evidence {
     result := make(map[string][]model.Evidence)
     for _, sample := range samples {
