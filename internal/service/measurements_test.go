@@ -65,3 +65,86 @@ func TestOperatorMeasurementRejectsInvalidAndUnknownRun(t *testing.T) {
 		t.Fatal("rejected values changed archive")
 	}
 }
+
+func TestOperatorMeasurementAnalysisIncludesSpectraForContinuousFrames(t *testing.T) {
+	a, err := OpenMeasurementArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := a.Create("tow sine", "hull X", "section-a", "carriage-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour).UTC()
+	record := func(source string, k int, value float64) {
+		input := MeasurementInput{
+			Kind:       model.EvidenceWaveTime,
+			SourceID:   source,
+			Value:      value,
+			RecordedAt: t0.Add(time.Duration(k) * 20 * time.Millisecond),
+		}
+		if _, err := a.Record(run.Operation.ID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for k := 0; k < 128; k++ {
+		record("probe-a", k, 0.1*math.Sin(2*math.Pi*float64(k)/50))
+	}
+	for k := 0; k < 12; k++ {
+		record("probe-b", k, 0.1*math.Sin(2*math.Pi*float64(k)/50))
+	}
+	analysis, err := a.Analyze(run.Operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Spectra) != 2 {
+		t.Fatalf("spectra = %d, want 2 sources", len(analysis.Spectra))
+	}
+	if analysis.Spectra[0].SourceID != "probe-a" || analysis.Spectra[0].Status != "ok" {
+		t.Fatalf("probe-a spectrum = %+v", analysis.Spectra[0])
+	}
+	peak := analysis.Spectra[0].Segments[0].Peak
+	if peak == nil || math.Abs(peak.FrequencyHz-1.0) > 0.05 {
+		t.Fatalf("probe-a peak = %+v", peak)
+	}
+	if analysis.Spectra[1].Status != "insufficient" || analysis.Spectra[1].Segments[0].Peak != nil {
+		t.Fatalf("probe-b must not produce a spectrum: %+v", analysis.Spectra[1])
+	}
+}
+
+func TestOperatorMeasurementAnalysisSparseFramesHasNoSpectralData(t *testing.T) {
+	a, err := OpenMeasurementArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := a.Create("tow sparse", "hull X", "section-a", "carriage-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour).UTC()
+	for k := 0; k < 3; k++ {
+		input := MeasurementInput{
+			Kind:       model.EvidenceWaveTime,
+			SourceID:   "probe-a",
+			Value:      0.1 * math.Sin(float64(k)),
+			RecordedAt: t0.Add(time.Duration(k) * 20 * time.Millisecond),
+		}
+		if _, err := a.Record(run.Operation.ID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	analysis, err := a.Analyze(run.Operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Spectra) != 1 {
+		t.Fatalf("spectra = %d", len(analysis.Spectra))
+	}
+	source := analysis.Spectra[0]
+	if source.Status != "insufficient" || source.Reason != "too_few_frames" {
+		t.Fatalf("sparse spectrum = %+v", source)
+	}
+	if source.Segments[0].Peak != nil || source.Segments[0].Power != nil {
+		t.Fatalf("insufficient spectrum leaked spectral data: %+v", source.Segments[0])
+	}
+}

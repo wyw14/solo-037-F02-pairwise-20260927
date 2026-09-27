@@ -83,6 +83,11 @@ func FilterRun(samples []model.Evidence, run model.RunID) []model.Evidence {
     return result
 }
 
+// DeriveSpectrum keeps the single-frame smoke-check contract used by the
+// reachability diagnostics.
+//
+// Deprecated: the absolute value of one frame cannot reveal a wave frequency.
+// Continuous-frame spectral analysis lives in AnalyzeSpectra.
 func DeriveSpectrum(sample model.Evidence) model.Evidence {
     derived := sample
     derived.ID = model.NewEventID()
